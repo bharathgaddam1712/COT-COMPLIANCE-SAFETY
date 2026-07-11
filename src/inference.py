@@ -85,17 +85,17 @@ def run(model_key, limit=None):
         for i, job in enumerate(todo):
             msgs = build_messages(job)
             inputs = tok.apply_chat_template(
-                msgs, add_generation_prompt=True, return_tensors="pt"
+                msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True
             ).to(model.device)
             out = model.generate(
-                inputs,
+                **inputs,
                 max_new_tokens=MAX_NEW_TOKENS,
                 do_sample=True,
                 temperature=TEMPERATURE,
                 top_p=TOP_P,
                 pad_token_id=tok.eos_token_id,
             )
-            gen = tok.decode(out[0][inputs.shape[1]:], skip_special_tokens=True)
+            gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
             cot, ans = split_think(gen)
 
             job.update(target_model=model_key, cot_trace=cot, final_answer=ans)

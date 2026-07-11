@@ -40,11 +40,11 @@ def main():
             msgs.append({"role": "user", "content": atk["user"]})
 
         inputs = tok.apply_chat_template(
-            msgs, add_generation_prompt=True, return_tensors="pt").to(model.device)
-        out = model.generate(inputs, max_new_tokens=min(MAX_NEW_TOKENS, 1024),
+            msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True).to(model.device)
+        out = model.generate(**inputs, max_new_tokens=min(MAX_NEW_TOKENS, 1024),
                              do_sample=True, temperature=TEMPERATURE, top_p=TOP_P,
                              pad_token_id=tok.eos_token_id)
-        gen = tok.decode(out[0][inputs.shape[1]:], skip_special_tokens=True)
+        gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
         cot, ans = split_think(gen)
 
         print("\n" + "=" * 70)
