@@ -1,0 +1,14 @@
+# Generated data never goes in git -- it lives in Drive / Kaggle storage.
+data/
+*.jsonl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Env / secrets
+.env
+*.pat
+pat-token

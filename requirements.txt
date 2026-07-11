@@ -1,0 +1,7 @@
+transformers>=4.48
+accelerate>=0.30
+bitsandbytes>=0.43
+datasets>=2.19
+torch
+# labeling (optional): hosted 70B CoT judge
+together
