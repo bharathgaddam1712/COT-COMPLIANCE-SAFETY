@@ -7,13 +7,22 @@ so IDs stay comparable across the whole ladder — do NOT re-run sampling.py per
 """
 
 import torch
+from pathlib import Path  # <--- ADD THIS
 
-from pathlib import Path
+# ------------------------------------------------------------------ #
+# Paths & Sampling Budget Settings (ADD THESE)
+# ------------------------------------------------------------------ #
+# Auto-detects if running on Kaggle or local/Colab fallback
+if Path("/kaggle/working").exists():
+    BASE = Path("/kaggle/working/cot-compliance-safety")
+else:
+    BASE = Path("./data").resolve().parent / "cot-compliance-safety"
 
-# Paths
-# Adjust the path string if your directory structure is different
-DATA_DIR = Path("/kaggle/working/cot-compliance-safety/data") 
-JOB_LIST = DATA_DIR / "job_list.jsonl"
+DATA_DIR            = BASE / "data"
+JOB_LIST            = DATA_DIR / "job_list.jsonl"
+
+PROMPTS_PER_CELL    = 120   # per (category x adversarial-attack)
+BENIGN_PER_CATEGORY = 60    # attack="none", for false-positive-rate denominator
 
 # ------------------------------------------------------------------ #
 # Global generation settings (unchanged from the original pipeline)
@@ -26,9 +35,9 @@ SEED           = 42
 # Harm taxonomy — NOTE: privacy dropped (source scarcity in HarmBench/AdvBench).
 HARM_CATEGORIES = [
     "cybercrime",
-    "chemical_biological",
+    "physical_harm",
     "misinformation",
-    "harassment",
+    "hate_speech",
 ]
 
 ATTACKS = ["none", "h_cot", "rto", "race"]
