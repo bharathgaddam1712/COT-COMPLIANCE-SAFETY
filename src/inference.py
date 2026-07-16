@@ -22,7 +22,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from config import MODELS, BNB_4BIT, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, SEED
 
-JOB_LIST = "job_list.jsonl"
+JOB_LIST = "/kaggle/working/cot-compliance-safety/data/job_list.jsonl"
 
 
 # ------------------------------------------------------------------ #
