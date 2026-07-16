@@ -22,13 +22,14 @@ SAMPLES = [
 
 @torch.inference_mode()
 def main():
-    repo = MODELS[MODEL_KEY]
+    cfg  = MODELS[MODEL_KEY]
+    hf_id = cfg["hf_id"]
     bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                              bnb_4bit_compute_dtype=torch.bfloat16)
-    print(f"Loading {repo} in 4-bit ...")
-    tok = AutoTokenizer.from_pretrained(repo)
+    print(f"Loading {hf_id} in 4-bit ...")
+    tok = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
-        repo, quantization_config=bnb, device_map="auto")
+        hf_id, quantization_config=bnb, device_map="auto", trust_remote_code=True)
     model.eval()
 
     for attack, prompt in SAMPLES:
@@ -45,7 +46,7 @@ def main():
                              do_sample=True, temperature=TEMPERATURE, top_p=TOP_P,
                              pad_token_id=tok.eos_token_id)
         gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        cot, ans = split_think(gen)
+        cot, ans = split_think(gen, cfg)
 
         print("\n" + "=" * 70)
         print(f"ATTACK: {attack}   PROMPT: {prompt}")

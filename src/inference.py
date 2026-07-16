@@ -1,7 +1,12 @@
 # inference.py -- run ONE reasoning model over the job list. Resumable, 4-bit.
 #
 #   python src/inference.py --model deepseek-r1-7b
-#   python src/inference.py --model deepseek-r1-8b --limit 50   # partial run
+#   python src/inference.py --model deepseek-r1-8b
+#   python src/inference.py --model deepseek-r1-14b
+#   python src/inference.py --model qwen3-14b
+#   python src/inference.py --model phi4-reasoning
+#   python src/inference.py --model qwq-32b          # shards across both T4s
+#   python src/inference.py --model deepseek-r1-7b --limit 50   # partial run
 #
 # Crash-safe: appends one line per completed sample to data/raw/<model>.jsonl and
 # skips any ID already present on restart. Re-run the same command after a Colab
@@ -18,20 +23,25 @@ from attacks import apply_attack
 
 
 def load_model(model_key):
-    repo = MODELS[model_key]
+    cfg = MODELS[model_key]
+    hf_id = cfg["hf_id"]
     bnb = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
-    print(f"Loading {repo} in 4-bit ...")
-    tok = AutoTokenizer.from_pretrained(repo)
+    print(f"Loading {hf_id} in 4-bit ...")
+    tok = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
-        repo, quantization_config=bnb, device_map="auto", torch_dtype=torch.bfloat16,
+        hf_id,
+        quantization_config=bnb,
+        device_map="auto",          # handles single-GPU and multi-GPU (qwq-32b) alike
+        trust_remote_code=True,
+        torch_dtype=torch.bfloat16,
     )
     model.eval()
-    return tok, model
+    return tok, model, cfg
 
 
 def build_messages(job):
@@ -45,11 +55,19 @@ def build_messages(job):
     return msgs
 
 
-def split_think(text):
-    """DeepSeek-R1 distill emits reasoning, then </think>, then the final answer."""
-    if "</think>" in text:
-        cot, ans = text.split("</think>", 1)
-        return cot.replace("<think>", "").strip(), ans.strip()
+def split_think(text, cfg):
+    """Split raw generation into (cot_trace, final_answer) using per-model delimiters.
+
+    If the close-delimiter is absent (model didn't emit a trace, or uses a
+    different format -- e.g. Phi-4), cot_trace is empty and the whole output
+    is treated as the final answer. VERIFY on a smoke sample per new family.
+    """
+    open_tag  = cfg["think_open"]
+    close_tag = cfg["think_close"]
+    if close_tag in text:
+        cot, ans = text.split(close_tag, 1)
+        cot = cot.replace(open_tag, "").strip()
+        return cot, ans.strip()
     return "", text.strip()   # no explicit think block -> treat all as answer
 
 
@@ -70,7 +88,7 @@ def run(model_key, limit=None):
     if not JOB_LIST.exists():
         raise FileNotFoundError(f"{JOB_LIST} missing. Run src/sampling.py first.")
 
-    tok, model = load_model(model_key)
+    tok, model, cfg = load_model(model_key)
     out_path = RAW_DIR / f"{model_key}.jsonl"
     done = already_done(out_path)
     print(f"Resuming: {len(done)} samples already complete.")
@@ -84,9 +102,19 @@ def run(model_key, limit=None):
     with open(out_path, "a", buffering=1) as f:      # line-buffered = crash-safe
         for i, job in enumerate(todo):
             msgs = build_messages(job)
-            inputs = tok.apply_chat_template(
-                msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True
-            ).to(model.device)
+
+            # Build the tokenised prompt, passing enable_thinking only when the
+            # model requires it (Qwen3 needs True; DeepSeek/QwQ ignore it).
+            template_kwargs = dict(
+                add_generation_prompt=True,
+                return_tensors="pt",
+                return_dict=True,
+            )
+            if cfg.get("enable_thinking") is not None:
+                template_kwargs["enable_thinking"] = cfg["enable_thinking"]
+
+            inputs = tok.apply_chat_template(msgs, **template_kwargs).to(model.device)
+
             out = model.generate(
                 **inputs,
                 max_new_tokens=MAX_NEW_TOKENS,
@@ -96,7 +124,7 @@ def run(model_key, limit=None):
                 pad_token_id=tok.eos_token_id,
             )
             gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-            cot, ans = split_think(gen)
+            cot, ans = split_think(gen, cfg)
 
             job.update(target_model=model_key, cot_trace=cot, final_answer=ans)
             f.write(json.dumps(job) + "\n")           # checkpoint EVERY sample

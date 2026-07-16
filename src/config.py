@@ -33,10 +33,46 @@ PROMPTS_PER_CELL    = 120   # per (category x adversarial-attack)
 BENIGN_PER_CATEGORY = 60    # attack="none", for false-positive-rate denominator
 
 # --- models: run ONE per session, swap via --model CLI flag ---
+# Each entry is a dict with:
+#   hf_id            – HuggingFace model repo
+#   think_open/close – delimiters used to separate CoT from final answer
+#   enable_thinking  – passed to apply_chat_template for models that need it
+#                      (None = omit the kwarg entirely; True/False = pass it)
+#   shard            – if True, device_map="auto" is already set (32B across T4s)
 MODELS = {
-    "deepseek-r1-7b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
-    "deepseek-r1-8b": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
-    # "phi4-14b":     "microsoft/Phi-4-reasoning",   # 14B is tight on 16GB even in 4-bit
+    "deepseek-r1-7b": {
+        "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": None,
+    },
+    "deepseek-r1-8b": {
+        "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": None,
+    },
+    "deepseek-r1-14b": {
+        "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": None,          # not needed for R1 distills
+    },
+    "qwen3-14b": {
+        "hf_id": "Qwen/Qwen3-14B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": True,          # REQUIRED or Qwen3 emits no CoT trace
+    },
+    "qwq-32b": {
+        "hf_id": "Qwen/QwQ-32B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": None,
+        "shard": True,                    # 32B -> split across both T4s via device_map=auto
+    },
+    "phi4-reasoning": {
+        "hf_id": "microsoft/Phi-4-reasoning-plus",
+        # Phi-4-reasoning wraps CoT differently -> VERIFY on a smoke sample first.
+        # It emits reasoning then a "final answer" section rather than clean </think>.
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": None,
+    },
 }
 
 # --- generation hyperparameters (DeepSeek-R1 recommended) ---
