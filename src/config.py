@@ -8,6 +8,13 @@ so IDs stay comparable across the whole ladder — do NOT re-run sampling.py per
 
 import torch
 
+from pathlib import Path
+
+# Paths
+# Adjust the path string if your directory structure is different
+DATA_DIR = Path("/kaggle/working/cot-compliance-safety/data") 
+JOB_LIST = DATA_DIR / "job_list.jsonl"
+
 # ------------------------------------------------------------------ #
 # Global generation settings (unchanged from the original pipeline)
 # ------------------------------------------------------------------ #
