@@ -1,6 +1,3 @@
-# Generated data never goes in git -- it lives in Drive / Kaggle storage.
-data/
-*.jsonl
 
 # Python
 __pycache__/
