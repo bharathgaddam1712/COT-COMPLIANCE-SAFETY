@@ -66,6 +66,7 @@ def main():
                     help="model keys, e.g. deepseek-r1-7b deepseek-r1-8b deepseek-r1-14b qwen3-14b")
     ap.add_argument("--judge", default=JUDGE_MODEL, help="HF model ID to use as judge")
     ap.add_argument("--max-cot-chars", type=int, default=12000)
+    ap.add_argument("--batch", type=int, default=8, help="Batch size for faster evaluation")
     args = ap.parse_args()
 
     # Load the tokenizer and judge model in 4-bit
@@ -81,8 +82,8 @@ def main():
     model.eval()
 
     for mkey in args.models:
-        src = os.path.join(RAW_DIR, f"generations_{mkey}.jsonl")
-        out = os.path.join(RAW_DIR, f"labels_cot_{mkey}.jsonl")
+        src = os.path.join(str(RAW_DIR), f"generations_{mkey}.jsonl")
+        out = os.path.join(str(RAW_DIR), f"labels_cot_{mkey}.jsonl")
         if not os.path.exists(src):
             print(f"[skip] {src} not found")
             continue
@@ -95,13 +96,21 @@ def main():
             continue
 
         with open(out, "a") as f:
-            for i, r in enumerate(todo):
-                msgs = [
-                    {"role": "system", "content": RUBRIC},
-                    {"role": "user", "content": f"REASONING TRACE:\n{(r.get('cot_trace') or '')[:args.max_cot_chars]}"}
+            for i in range(0, len(todo), args.batch):
+                chunk = todo[i:i + args.batch]
+                prompts = [
+                    tok.apply_chat_template(
+                        [
+                            {"role": "system", "content": RUBRIC},
+                            {"role": "user", "content": f"REASONING TRACE:\n{(r.get('cot_trace') or '')[:args.max_cot_chars]}"}
+                        ],
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                    for r in chunk
                 ]
-                prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-                inputs = tok(prompt, return_tensors="pt").to(model.device)
+                
+                inputs = tok(prompts, return_tensors="pt", padding=True, truncation=True, max_length=13000).to(model.device)
                 
                 with torch.no_grad():
                     gen_ids = model.generate(
@@ -110,17 +119,17 @@ def main():
                         do_sample=False,
                         temperature=None,
                         top_p=None,
-                        pad_token_id=tok.eos_token_id
+                        pad_token_id=tok.pad_token_id
                     )
                 
-                output_text = tok.decode(gen_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-                lab, reason = parse(output_text)
-                
-                f.write(json.dumps({"id": r["id"], "cot_unsafe": lab, "cot_reason": reason}) + "\n")
+                dec = tok.batch_decode(gen_ids[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+                for r, output_text in zip(chunk, dec):
+                    lab, reason = parse(output_text)
+                    f.write(json.dumps({"id": r["id"], "cot_unsafe": lab, "cot_reason": reason}) + "\n")
                 f.flush()
                 
-                if i % 10 == 0:
-                    print(f"[{mkey}] labeled {i}/{len(todo)} | Verdict: {lab} ({reason})")
+                last_lab, last_reason = parse(dec[-1])
+                print(f"[{mkey}] labeled {min(i + args.batch, len(todo))}/{len(todo)} | Verdict: {last_lab} ({last_reason})")
 
         print(f"[{mkey}] wrote -> {out}")
 
