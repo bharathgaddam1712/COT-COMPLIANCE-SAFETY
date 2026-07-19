@@ -39,7 +39,7 @@ def guard_batch(tok, model, prompts, answers):
     texts = [WILDGUARD_FORMAT.format(prompt=p, response=a)
              for p, a in zip(prompts, answers)]
     enc = tok(texts, return_tensors="pt", padding=True, truncation=True,
-              max_length=8192).to(model.device)
+              max_length=8192, add_special_tokens=False).to(model.device)   # <-- format has <s> already
     out = model.generate(**enc, max_new_tokens=32, do_sample=False,
                          pad_token_id=tok.pad_token_id)
     gen = tok.batch_decode(out[:, enc["input_ids"].shape[1]:], skip_special_tokens=True)

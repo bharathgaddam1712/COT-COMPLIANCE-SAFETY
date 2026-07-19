@@ -43,7 +43,6 @@ def label_one_model(model, llm, tok, sp):
         print(f"[{model}] nothing to do")
         return
 
-
     prompts = []
     for r in rows:
         msgs = [{"role": "system", "content": RUBRIC},
@@ -58,15 +57,13 @@ def label_one_model(model, llm, tok, sp):
             f.write(json.dumps({"id": r["id"], "cot_unsafe": lab, "cot_reason": reason}) + "\n")
     print(f"[{model}] done -> {out}")
 
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", required=True,
-                    help="e.g. --models r1-distill-llama-8b r1-distill-qwen-7b qwen3-14b phi4-reasoning-plus")
+                    help="e.g. --models deepseek-r1-7b deepseek-r1-8b deepseek-r1-14b qwen3-14b")
     ap.add_argument("--judge_id", default="Qwen/Qwen2.5-32B-Instruct-AWQ")
     ap.add_argument("--tp", type=int, default=2)
     args = ap.parse_args()
-
 
     print(f"Loading judge {args.judge_id} (once) ...")
     llm = LLM(model=args.judge_id, quantization="awq",
@@ -79,7 +76,6 @@ def main():
         label_one_model(model, llm, tok, sp)
 
     print("\nAll models done.")
-
 
 if __name__ == "__main__":
     main()
