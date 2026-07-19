@@ -11,6 +11,8 @@ def _base_dir() -> Path:
     if Path("/content/drive/MyDrive").exists():
         return Path("/content/drive/MyDrive/cot-compliance-safety")   # Colab + Drive
     if Path("/kaggle/working").exists():
+        if Path("/kaggle/working/COT-COMPLIANCE-SAFETY").exists():
+            return Path("/kaggle/working/COT-COMPLIANCE-SAFETY")
         return Path("/kaggle/working/cot-compliance-safety")          # Kaggle
     return Path("./data").resolve().parent / "cot-compliance-safety"  # local fallback
 
