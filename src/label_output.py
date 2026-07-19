@@ -7,6 +7,17 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1")
 
 import json, argparse
 import torch
+# Monkeypatch set_submodule for older PyTorch versions (pre-2.5 compatibility in transformers)
+if not hasattr(torch.nn.Module, "set_submodule"):
+    def _set_submodule(self, target: str, module: torch.nn.Module) -> None:
+        atoms = target.split('.')
+        path, target_attr = atoms[:-1], atoms[-1]
+        curr = self
+        for item in path:
+            curr = getattr(curr, item)
+        setattr(curr, target_attr, module)
+    torch.nn.Module.set_submodule = _set_submodule
+
 from config import RAW_DIR, BNB_4BIT
 
 GUARD_ID = "allenai/wildguard"

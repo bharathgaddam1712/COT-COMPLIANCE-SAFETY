@@ -12,7 +12,18 @@ import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1")
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 
-import json, argparse, re
+import json, argparse, re, torch
+# Monkeypatch set_submodule for older PyTorch versions (pre-2.5 compatibility in transformers)
+if not hasattr(torch.nn.Module, "set_submodule"):
+    def _set_submodule(self, target: str, module: torch.nn.Module) -> None:
+        atoms = target.split('.')
+        path, target_attr = atoms[:-1], atoms[-1]
+        curr = self
+        for item in path:
+            curr = getattr(curr, item)
+        setattr(curr, target_attr, module)
+    torch.nn.Module.set_submodule = _set_submodule
+
 from config import RAW_DIR
 
 JUDGES = {
