@@ -1,144 +1,183 @@
-# inference.py -- run ONE reasoning model over the job list. Resumable, 4-bit.
-#
-#   python src/inference.py --model deepseek-r1-7b
-#   python src/inference.py --model deepseek-r1-8b
-#   python src/inference.py --model deepseek-r1-14b
-#   python src/inference.py --model qwen3-14b
-#   python src/inference.py --model phi4-reasoning
-#   python src/inference.py --model qwq-32b          # shards across both T4s
-#   python src/inference.py --model deepseek-r1-7b --limit 50   # partial run
-#
-# Crash-safe: appends one line per completed sample to data/raw/<model>.jsonl and
-# skips any ID already present on restart. Re-run the same command after a Colab
-# or Kaggle disconnect and it picks up exactly where it stopped.
+"""
+inference.py — CoT-ComplianceBench generation pass
+
+Reads the shared job_list.jsonl, generates a reasoning trace + final answer for
+each job on the chosen target model, splits on </think>, and writes resumable JSONL.
+
+Run:   python inference.py --model qwen3-14b
+       python inference.py --model qwq-32b
+Do NOT re-run sampling.py — every model reuses the same job_list.jsonl (SEED=42).
+"""
+
 import os
+# must be set BEFORE torch allocates anything — cuts fragmentation OOM over a long loop
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+import gc
 import json
 import argparse
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from config import (JOB_LIST, RAW_DIR, MODELS, MAX_NEW_TOKENS, TEMPERATURE, TOP_P)
-from attacks import apply_attack
+from config import MODELS, BNB_4BIT, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, SEED, RAW_DIR
+
+JOB_LIST = "/kaggle/working/cot-compliance-safety/data/job_list.jsonl"
 
 
-def load_model(model_key):
-    cfg = MODELS[model_key]
-    hf_id = cfg["hf_id"]
-    bnb = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
-    print(f"Loading {hf_id} in 4-bit ...")
-    tok = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
+# ------------------------------------------------------------------ #
+# Model / tokenizer
+# ------------------------------------------------------------------ #
+def build_model(cfg):
+    bnb = BitsAndBytesConfig(**BNB_4BIT)            # pass as quantization_config, not bare kwargs
+    tok = AutoTokenizer.from_pretrained(cfg["hf_id"], trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
-        hf_id,
+        cfg["hf_id"],
         quantization_config=bnb,
-        device_map="auto",          # handles single-GPU and multi-GPU (qwq-32b) alike
+        device_map="auto",
+        max_memory=cfg.get("max_memory"),           # forces the split across both T4s
+        torch_dtype=torch.float16,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
     )
     model.eval()
-    return tok, model, cfg
+
+    # sanity check printed once at load — catches a silent fp16 load / bad shard
+    print(f"[{cfg['hf_id']}] footprint = {model.get_memory_footprint() / 1e9:.1f} GB "
+          f"(expect ~8 for 14B, ~18 for 32B — NOT ~28)")
+    print(f"[{cfg['hf_id']}] device_map = {model.hf_device_map}")
+    return tok, model
 
 
-def build_messages(job):
-    atk = apply_attack(job["attack_method"], job["prompt"])
-    if isinstance(atk, list):                     # RACE: already a turn list
-        return atk
-    msgs = []
-    if atk["system"]:
-        msgs.append({"role": "system", "content": atk["system"]})
-    msgs.append({"role": "user", "content": atk["user"]})
-    return msgs
+def build_prompt(tok, cfg, user_prompt):
+    messages = [{"role": "user", "content": user_prompt}]
+    kwargs = dict(tokenize=False, add_generation_prompt=True)
+    if cfg.get("enable_thinking") is not None:      # only Qwen3 wants this kwarg
+        kwargs["enable_thinking"] = cfg["enable_thinking"]
+    return tok.apply_chat_template(messages, **kwargs)
 
 
 def split_think(text, cfg):
-    """Split raw generation into (cot_trace, final_answer) using per-model delimiters.
-
-    If the close-delimiter is absent (model didn't emit a trace, or uses a
-    different format -- e.g. Phi-4), cot_trace is empty and the whole output
-    is treated as the final answer. VERIFY on a smoke sample per new family.
-    """
-    open_tag  = cfg["think_open"]
-    close_tag = cfg["think_close"]
-    if close_tag in text:
-        cot, ans = text.split(close_tag, 1)
-        cot = cot.replace(open_tag, "").strip()
-        return cot, ans.strip()
-    return "", text.strip()   # no explicit think block -> treat all as answer
+    """Split raw generation into (cot_trace, final_answer) on the close delimiter.
+    If the delimiter is absent, treat the whole thing as answer with an empty trace.
+    ⚠️ VERIFY per family — a wrong delimiter silently corrupts every label."""
+    close = cfg["think_close"]
+    if close in text:
+        cot, answer = text.split(close, 1)
+        cot = cot.replace(cfg["think_open"], "")
+        return cot.strip(), answer.strip()
+    return "", text.strip()
 
 
+# ------------------------------------------------------------------ #
+# Generation
+# ------------------------------------------------------------------ #
+@torch.no_grad()
+def generate_one(tok, model, cfg, user_prompt):
+    prompt = build_prompt(tok, cfg, user_prompt)
+    inputs = tok(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=4096,                            # bound the prompt so total ctx stays in budget
+    ).to(model.device)
+
+    out = model.generate(
+        **inputs,
+        max_new_tokens=MAX_NEW_TOKENS,
+        do_sample=True,
+        temperature=TEMPERATURE,
+        top_p=TOP_P,
+        use_cache=True,
+        pad_token_id=tok.eos_token_id,
+    )
+    gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+    # free every sample or fragmentation OOMs you partway through the 1013-loop
+    del inputs, out
+    gc.collect()
+    torch.cuda.empty_cache()
+    return gen
+
+
+# ------------------------------------------------------------------ #
+# Resumability
+# ------------------------------------------------------------------ #
 def already_done(out_path):
     done = set()
-    if out_path.exists():
-        with open(out_path) as f:
+    if os.path.exists(out_path):
+        with open(out_path, "r") as f:
             for line in f:
                 try:
                     done.add(json.loads(line)["id"])
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, KeyError):
+                    continue
     return done
 
 
-@torch.inference_mode()
-def run(model_key, limit=None):
-    if not JOB_LIST.exists():
-        raise FileNotFoundError(f"{JOB_LIST} missing. Run src/sampling.py first.")
+def load_jobs(path):
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
 
-    tok, model, cfg = load_model(model_key)
-    out_path = RAW_DIR / f"{model_key}.jsonl"
+
+# ------------------------------------------------------------------ #
+# Main
+# ------------------------------------------------------------------ #
+# ------------------------------------------------------------------ #
+# Main
+# ------------------------------------------------------------------ #
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", required=True, choices=list(MODELS.keys()))
+    ap.add_argument("--jobs", default=JOB_LIST)
+    args = ap.parse_args()
+
+    torch.manual_seed(SEED)
+
+    cfg = MODELS[args.model]
+    
+    # 1. Ensure the target directory exists, then set the output path
+    os.makedirs(RAW_DIR, exist_ok=True)
+    out_path = os.path.join(RAW_DIR, f"generations_{args.model}.jsonl")
+    
+    # 2. Check for already completed jobs in that specific file
     done = already_done(out_path)
-    print(f"Resuming: {len(done)} samples already complete.")
+    print(f"[{args.model}] resuming — {len(done)} already done from {out_path}")
 
-    jobs = [json.loads(l) for l in open(JOB_LIST)]
-    todo = [j for j in jobs if j["id"] not in done]
-    if limit:
-        todo = todo[:limit]
-    print(f"{len(todo)} jobs remaining for {model_key}.")
+    tok, model = build_model(cfg)
 
-    with open(out_path, "a", buffering=1) as f:      # line-buffered = crash-safe
+    # 3. Pre-calculate the remaining jobs to get the denominator for your logs
+    all_jobs = list(load_jobs(args.jobs))
+    todo = [j for j in all_jobs if j["id"] not in done]
+    todo_count = len(todo)
+
+    # 4. Open the file in append mode ("a") to write iteration over iteration
+    with open(out_path, "a") as fout:
         for i, job in enumerate(todo):
-            msgs = build_messages(job)
+            
+            raw = generate_one(tok, model, cfg, job["prompt"])
+            cot, answer = split_think(raw, cfg)
 
-            # Build the tokenised prompt, passing enable_thinking only when the
-            # model requires it (Qwen3 needs True; DeepSeek/QwQ ignore it).
-            template_kwargs = dict(
-                add_generation_prompt=True,
-                return_tensors="pt",
-                return_dict=True,
-            )
-            if cfg.get("enable_thinking") is not None:
-                template_kwargs["enable_thinking"] = cfg["enable_thinking"]
+            rec = {
+                "id": job["id"],
+                "target_model": args.model,
+                "harm_category": job.get("harm_category"),
+                "attack_method": job.get("attack_method"),
+                "prompt": job["prompt"],
+                "cot_trace": cot,
+                "final_answer": answer,
+            }
+            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            fout.flush()                             # checkpoint every sample -> resumable
 
-            inputs = tok.apply_chat_template(msgs, **template_kwargs).to(model.device)
-
-            out = model.generate(
-                **inputs,
-                max_new_tokens=MAX_NEW_TOKENS,
-                do_sample=True,
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                pad_token_id=tok.eos_token_id,
-            )
-            gen = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-            cot, ans = split_think(gen, cfg)
-
-            job.update(target_model=model_key, cot_trace=cot, final_answer=ans)
-            f.write(json.dumps(job) + "\n")           # checkpoint EVERY sample
+            # 5. Print the progress log every 10 samples
             if i % 10 == 0:
-                print(f"[{i}/{len(todo)}] {job['id']} "
-                      f"cot={len(cot)}c ans={len(ans)}c")
+                print(f"[{i}/{todo_count}] {job['id']} cot={len(cot)}c ans={len(answer)}c")
 
-    print(f"Done. Output -> {out_path}")
+    print(f"[{args.model}] done -> {out_path}")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True, choices=list(MODELS))
-    ap.add_argument("--limit", type=int, default=None,
-                    help="cap number of new samples this run (for testing)")
-    args = ap.parse_args()
-    run(args.model, args.limit)
+    main()
