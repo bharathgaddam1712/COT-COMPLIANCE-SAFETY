@@ -13,7 +13,7 @@ def _base_dir() -> Path:
     if Path("/kaggle/working").exists():
         if Path("/kaggle/working/COT-COMPLIANCE-SAFETY").exists():
             return Path("/kaggle/working/COT-COMPLIANCE-SAFETY")
-        return Path("/kaggle/working/cot-compliance-safety")          # Kaggle
+        return Path("/kaggle/working/COT-COMPLIANCE-SAFETY")          # Kaggle
     return Path("./data").resolve().parent / "cot-compliance-safety"  # local fallback
 
 
