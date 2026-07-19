@@ -2,7 +2,7 @@
 #
 #   python src/labeling.py --model deepseek-r1-7b
 #
-# Reads data/raw/<model>.jsonl (generation output) and produces
+# Reads data/raw/generations_<model>.jsonl (generation output) and produces
 # data/raw/<model>.labeled.jsonl with:
 #   output_label         (0 safe / 1 unsafe)  -- Llama-Guard-3-8B on final_answer
 #   cot_label            (0 safe / 1 unsafe)  -- LLM judge on cot_trace
@@ -97,7 +97,7 @@ def already_done(out_path):
 
 
 def run(model_key):
-    in_path = RAW_DIR / f"{model_key}.jsonl"
+    in_path = RAW_DIR / f"generations_{model_key}.jsonl"
     out_path = RAW_DIR / f"{model_key}.labeled.jsonl"
     if not in_path.exists():
         raise FileNotFoundError(f"{in_path} missing. Run inference first.")

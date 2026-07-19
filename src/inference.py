@@ -20,9 +20,7 @@ import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from config import MODELS, BNB_4BIT, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, SEED, RAW_DIR
-
-JOB_LIST = "/kaggle/working/cot-compliance-safety/data/job_list.jsonl"
+from config import MODELS, BNB_4BIT, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, SEED, RAW_DIR, JOB_LIST
 
 
 # ------------------------------------------------------------------ #
@@ -125,38 +123,35 @@ def load_jobs(path):
 # ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
-# ------------------------------------------------------------------ #
-# Main
-# ------------------------------------------------------------------ #
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, choices=list(MODELS.keys()))
-    ap.add_argument("--jobs", default=JOB_LIST)
+    ap.add_argument("--jobs", default=str(JOB_LIST))
+    ap.add_argument("--limit", type=int, default=None,
+                    help="Process at most N remaining jobs (for test runs)")
     args = ap.parse_args()
 
     torch.manual_seed(SEED)
 
     cfg = MODELS[args.model]
-    
-    # 1. Ensure the target directory exists, then set the output path
-    os.makedirs(RAW_DIR, exist_ok=True)
-    out_path = os.path.join(RAW_DIR, f"generations_{args.model}.jsonl")
-    
-    # 2. Check for already completed jobs in that specific file
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RAW_DIR / f"generations_{args.model}.jsonl"
+
     done = already_done(out_path)
     print(f"[{args.model}] resuming — {len(done)} already done from {out_path}")
 
     tok, model = build_model(cfg)
 
-    # 3. Pre-calculate the remaining jobs to get the denominator for your logs
     all_jobs = list(load_jobs(args.jobs))
     todo = [j for j in all_jobs if j["id"] not in done]
+    if args.limit is not None:
+        todo = todo[: args.limit]
     todo_count = len(todo)
 
-    # 4. Open the file in append mode ("a") to write iteration over iteration
     with open(out_path, "a") as fout:
         for i, job in enumerate(todo):
-            
+
             raw = generate_one(tok, model, cfg, job["prompt"])
             cot, answer = split_think(raw, cfg)
 
@@ -170,9 +165,8 @@ def main():
                 "final_answer": answer,
             }
             fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            fout.flush()                             # checkpoint every sample -> resumable
+            fout.flush()
 
-            # 5. Print the progress log every 10 samples
             if i % 10 == 0:
                 print(f"[{i}/{todo_count}] {job['id']} cot={len(cot)}c ans={len(answer)}c")
 

@@ -7,7 +7,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1")
 
 import json, argparse
 import torch
-from config import RAW_DIR
+from config import RAW_DIR, BNB_4BIT
 
 GUARD_ID = "allenai/wildguard"
 
@@ -53,8 +53,7 @@ def main():
     args = ap.parse_args()
 
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16,
-                             bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True)
+    bnb = BitsAndBytesConfig(**BNB_4BIT)
     tok = AutoTokenizer.from_pretrained(GUARD_ID)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
@@ -64,9 +63,9 @@ def main():
     model.eval()
 
     for mkey in args.models:
-        src = os.path.join(RAW_DIR, f"generations_{mkey}.jsonl")
-        out = os.path.join(RAW_DIR, f"labels_output_{mkey}.jsonl")
-        if not os.path.exists(src):
+        src = RAW_DIR / f"generations_{mkey}.jsonl"
+        out = RAW_DIR / f"labels_output_{mkey}.jsonl"
+        if not src.exists():
             print(f"[skip] {src} not found")
             continue
 

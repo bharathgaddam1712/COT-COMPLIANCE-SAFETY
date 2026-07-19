@@ -22,10 +22,10 @@ def main():
     args = ap.parse_args()
 
     for mkey in args.models:
-        gen = os.path.join(RAW_DIR, f"generations_{mkey}.jsonl")
-        out_lab = load_map(os.path.join(RAW_DIR, f"labels_output_{mkey}.jsonl"), "output_unsafe")
-        cot_lab = load_map(os.path.join(RAW_DIR, f"labels_cot_{mkey}.jsonl"), "cot_unsafe")
-        dst = os.path.join(RAW_DIR, f"labeled_{mkey}.jsonl")
+        gen = RAW_DIR / f"generations_{mkey}.jsonl"
+        out_lab = load_map(RAW_DIR / f"labels_output_{mkey}.jsonl", "output_unsafe")
+        cot_lab = load_map(RAW_DIR / f"labels_cot_{mkey}.jsonl", "cot_unsafe")
+        dst = RAW_DIR / f"labeled_{mkey}.jsonl"
 
         quad_counts, n_adv, q3_adv, written = Counter(), 0, 0, 0
         with open(dst, "w") as f:

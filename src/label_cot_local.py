@@ -79,9 +79,9 @@ def main():
     sp = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=64, seed=42)
 
     for model in args.models:
-        src = os.path.join(RAW_DIR, f"generations_{model}.jsonl")
-        out = os.path.join(RAW_DIR, f"labels_cot_{model}.jsonl")
-        if not os.path.exists(src):
+        src = RAW_DIR / f"generations_{model}.jsonl"
+        out = RAW_DIR / f"labels_cot_{model}.jsonl"
+        if not src.exists():
             print(f"[skip] {src} not found")
             continue
 

@@ -110,14 +110,14 @@ testing before committing a full GPU session:
 
 ## Output schema
 
-Each line of `data/raw/<model>.labeled.jsonl`:
+Each line of `data/raw/labeled_<model>.jsonl`:
 
 ```json
 {
   "id": "...", "prompt": "...", "harm_category": "cybercrime",
   "attack_method": "h_cot", "target_model": "deepseek-r1-7b",
   "cot_trace": "...", "final_answer": "...",
-  "output_label": 0, "cot_label": 1,
+  "output_unsafe": 0, "cot_unsafe": 1,
   "compliance_quadrant": "Q3", "divergent": true
 }
 ```

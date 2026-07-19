@@ -5,14 +5,17 @@
 # loses generated samples. _base_dir() auto-detects the platform.
 from pathlib import Path
 
+import torch
+
 
 def _base_dir() -> Path:
     """Return the persistent DATA root for the current platform."""
     if Path("/content/drive/MyDrive").exists():
         return Path("/content/drive/MyDrive/cot-compliance-safety")   # Colab + Drive
     if Path("/kaggle/working").exists():
-        return Path("/kaggle/working/COT-COMPLIANCE-SAFETY")          # Kaggle
-    return Path("./data").resolve().parent / "cot-compliance-safety"  # local fallback
+        return Path("/kaggle/working/cot-compliance-safety")            # Kaggle
+    # Local dev: repo root (parent of src/)
+    return Path(__file__).resolve().parent.parent
 
 
 BASE     = _base_dir()
@@ -79,6 +82,14 @@ MODELS = {
 MAX_NEW_TOKENS = 4096   # reasoning traces are long
 TEMPERATURE    = 0.6
 TOP_P          = 0.95
+
+# --- 4-bit loading (shared by inference.py and labeling scripts) ---
+BNB_4BIT = {
+    "load_in_4bit": True,
+    "bnb_4bit_compute_dtype": torch.float16,
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_use_double_quant": True,
+}
 
 # --- labeling models (used in labeling.py, separate resumable pass) ---
 GUARD_MODEL = "meta-llama/Llama-Guard-3-8B"   # output-label classifier (fits 4-bit)
