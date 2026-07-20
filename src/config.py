@@ -69,12 +69,11 @@ MODELS = {
         "enable_thinking": None,
         "shard": True,                    # 32B -> split across both T4s via device_map=auto
     },
-    "phi4-reasoning": {
-        "hf_id": "microsoft/Phi-4-reasoning-plus",
-        # Phi-4-reasoning wraps CoT differently -> VERIFY on a smoke sample first.
-        # It emits reasoning then a "final answer" section rather than clean </think>.
+    "deepseek-r1-32b": {
+        "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
         "think_open": "<think>", "think_close": "</think>",
         "enable_thinking": None,
+        "shard": True,                    # 32B -> split across both T4s via device_map=auto
     },
 }
 
