@@ -58,6 +58,16 @@ MODELS = {
         "think_open": "<think>", "think_close": "</think>",
         "enable_thinking": None,          # not needed for R1 distills
     },
+    "qwen3-4b": {
+        "hf_id": "Qwen/Qwen3-4B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": True,          # REQUIRED or Qwen3 emits no CoT trace
+    },
+    "qwen3-8b": {
+        "hf_id": "Qwen/Qwen3-8B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": True,          # REQUIRED or Qwen3 emits no CoT trace
+    },
     "qwen3-14b": {
         "hf_id": "Qwen/Qwen3-14B",
         "think_open": "<think>", "think_close": "</think>",
