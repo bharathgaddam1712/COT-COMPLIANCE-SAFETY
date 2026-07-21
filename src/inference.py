@@ -35,7 +35,7 @@ def build_model(cfg):
         quantization_config=bnb,
         device_map="auto",
         max_memory=cfg.get("max_memory"),           # forces the split across both T4s
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         trust_remote_code=True,
     )
     model.eval()
