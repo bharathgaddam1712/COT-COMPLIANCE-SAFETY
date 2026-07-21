@@ -58,6 +58,16 @@ MODELS = {
         "think_open": "<think>", "think_close": "</think>",
         "enable_thinking": None,          # not needed for R1 distills
     },
+    "qwen3-4b": {
+        "hf_id": "Qwen/Qwen3-4B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": True,          # REQUIRED or Qwen3 emits no CoT trace
+    },
+    "qwen3-8b": {
+        "hf_id": "Qwen/Qwen3-8B",
+        "think_open": "<think>", "think_close": "</think>",
+        "enable_thinking": True,          # REQUIRED or Qwen3 emits no CoT trace
+    },
     "qwen3-14b": {
         "hf_id": "Qwen/Qwen3-14B",
         "think_open": "<think>", "think_close": "</think>",
@@ -69,12 +79,11 @@ MODELS = {
         "enable_thinking": None,
         "shard": True,                    # 32B -> split across both T4s via device_map=auto
     },
-    "phi4-reasoning": {
-        "hf_id": "microsoft/Phi-4-reasoning-plus",
-        # Phi-4-reasoning wraps CoT differently -> VERIFY on a smoke sample first.
-        # It emits reasoning then a "final answer" section rather than clean </think>.
+    "deepseek-r1-32b": {
+        "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
         "think_open": "<think>", "think_close": "</think>",
         "enable_thinking": None,
+        "shard": True,                    # 32B -> split across both T4s via device_map=auto
     },
 }
 
