@@ -21,6 +21,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from config import MODELS, BNB_4BIT, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, SEED, RAW_DIR, JOB_LIST
+from attacks import build_messages
 
 
 # ------------------------------------------------------------------ #
@@ -46,8 +47,16 @@ def build_model(cfg):
     return tok, model
 
 
-def build_prompt(tok, cfg, user_prompt):
-    messages = [{"role": "user", "content": user_prompt}]
+def build_prompt(tok, cfg, job):
+    """Render the attack-transformed chat input for this job into a prompt string.
+
+    Reads the materialized `messages` written by sampling.py (which already
+    encodes the attack: h_cot system frame, rto filler, RACE multi-turn, or a
+    plain user turn for none). Falls back to reconstructing them from
+    attack_method+prompt so a pre-attack job_list.jsonl still runs."""
+    messages = job.get("messages")
+    if not messages:                                # legacy job list without attacks materialized
+        messages = build_messages(job.get("attack_method", "none"), job["prompt"])
     kwargs = dict(tokenize=False, add_generation_prompt=True)
     if cfg.get("enable_thinking") is not None:      # only Qwen3 wants this kwarg
         kwargs["enable_thinking"] = cfg["enable_thinking"]
@@ -70,8 +79,8 @@ def split_think(text, cfg):
 # Generation
 # ------------------------------------------------------------------ #
 @torch.no_grad()
-def generate_one(tok, model, cfg, user_prompt):
-    prompt = build_prompt(tok, cfg, user_prompt)
+def generate_one(tok, model, cfg, job):
+    prompt = build_prompt(tok, cfg, job)
     inputs = tok(
         prompt,
         return_tensors="pt",
@@ -152,7 +161,7 @@ def main():
     with open(out_path, "a") as fout:
         for i, job in enumerate(todo):
 
-            raw = generate_one(tok, model, cfg, job["prompt"])
+            raw = generate_one(tok, model, cfg, job)
             cot, answer = split_think(raw, cfg)
 
             rec = {

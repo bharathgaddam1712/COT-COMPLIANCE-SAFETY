@@ -55,3 +55,21 @@ def apply_attack(attack: str, prompt: str):
     if attack == "race":
         return race(prompt)
     raise ValueError(f"unknown attack: {attack}")
+
+
+def build_messages(attack: str, prompt: str) -> list:
+    """Normalize apply_attack() output into a single chat `messages` list of
+    {role, content} dicts, ready to hand to tokenizer.apply_chat_template().
+
+    Collapses the two shapes apply_attack can return -- a single-turn
+    {system, user} dict (none / h_cot / rto) or a multi-turn RACE turn list --
+    into one uniform representation, so every job carries the same schema and
+    inference.py never has to branch on attack type."""
+    payload = apply_attack(attack, prompt)
+    if isinstance(payload, list):        # RACE: already a role/content turn list
+        return payload
+    messages = []
+    if payload.get("system"):            # h_cot injects a system frame; none/rto don't
+        messages.append({"role": "system", "content": payload["system"]})
+    messages.append({"role": "user", "content": payload["user"]})
+    return messages

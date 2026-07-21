@@ -15,6 +15,7 @@ except ImportError:  # allow --dry-run without the datasets lib installed
 
 from config import (JOB_LIST, HARM_CATEGORIES, ATTACKS, PROMPTS_PER_CELL,
                     BENIGN_PER_CATEGORY, SEED)
+from attacks import build_messages
 
 random.seed(SEED)
 
@@ -85,9 +86,12 @@ def build_job_list():
         seen.add(jid)
         jobs.append({
             "id": jid,
-            "prompt": prompt,
+            "prompt": prompt,                       # raw source prompt (provenance + ID)
             "harm_category": cat,
             "attack_method": attack,
+            # the attack-transformed chat input the model actually receives.
+            # single source of truth so all 8 models generate off identical inputs.
+            "messages": build_messages(attack, prompt),
             # filled at inference time:
             "target_model": None,
             "cot_trace": None,
